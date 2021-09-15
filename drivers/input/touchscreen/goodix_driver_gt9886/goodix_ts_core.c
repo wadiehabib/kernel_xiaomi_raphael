@@ -44,6 +44,10 @@
 #include <linux/backlight.h>
 #include "test_core/test_param_init.h"
 
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+#include <linux/input/tp_common.h>
+#endif
+
 #define INPUT_EVENT_START						0
 #define INPUT_EVENT_SENSITIVE_MODE_OFF			0
 #define INPUT_EVENT_SENSITIVE_MODE_ON			1
@@ -322,7 +326,6 @@ static int goodix_debugfs_init(void)
 	goodix_dbg.dentry = r_b;
 
 exit:
-	kfree(goodix_dbg.buf.data);
 	return 0;
 }
 
@@ -332,6 +335,30 @@ static void goodix_debugfs_exit(void)
 	goodix_dbg.dentry = NULL;
 	pr_info("Debugfs module exit\n");
 }
+
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+static ssize_t double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", goodix_core_data->double_wakeup);
+}
+
+static ssize_t double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int rc, val;
+
+	rc = kstrtoint(buf, 10, &val);
+	if (rc)
+	return -EINVAL;
+
+	goodix_core_data->double_wakeup = !!val;
+	return count;
+}
+
+static struct tp_common_ops double_tap_ops = {
+	.show = double_tap_show,
+	.store = double_tap_store
+};
+#endif
 
 /* show external module infomation */
 static ssize_t goodix_ts_extmod_show(struct device *dev,
@@ -474,58 +501,43 @@ static ssize_t goodix_ts_read_cfg_show(struct device *dev,
 	return ret;
 }
 
-static u8 ascii2hex(u8 a)
-{
-	s8 value = 0;
-
-	if (a >= '0' && a <= '9')
-		value = a - '0';
-	else if (a >= 'A' && a <= 'F')
-		value = a - 'A' + 0x0A;
-	else if (a >= 'a' && a <= 'f')
-		value = a - 'a' + 0x0A;
-	else
-		value = 0xff;
-
-	return value;
-}
-
-static int goodix_ts_convert_0x_data(const u8 *buf, int buf_size,
-				     unsigned char *out_buf, int *out_buf_len)
+static int goodix_ts_convert_0x_data(const u8 *buf,
+		int buf_size, unsigned char *out_buf, int *out_buf_len)
 {
 	int i, m_size = 0;
 	int temp_index = 0;
-	u8 high, low;
 
 	for (i = 0; i < buf_size; i++) {
 		if (buf[i] == 'x' || buf[i] == 'X')
 			m_size++;
 	}
-
+	ts_info("***m_size:%d", m_size);
 	if (m_size <= 1) {
 		ts_err("cfg file ERROR, valid data count:%d\n", m_size);
 		return -EINVAL;
 	}
 	*out_buf_len = m_size;
-
 	for (i = 0; i < buf_size; i++) {
-		if (buf[i] != 'x' && buf[i] != 'X')
-			continue;
-
-		if (temp_index >= m_size) {
-			ts_err("exchange cfg data error, overflow,"
-			       "temp_index:%d,m_size:%d\n",
-			       temp_index, m_size);
-			return -EINVAL;
+		if (buf[i] == 'x' || buf[i] == 'X') {
+			if (temp_index >= m_size) {
+				ts_err("exchange cfg data error, overflow, temp_index:%d,m_size:%d\n",
+						temp_index, m_size);
+				return -EINVAL;
+			}
+			if (buf[i + 1] >= '0' && buf[i + 1] <= '9')
+				out_buf[temp_index] = (buf[i + 1] - '0') << 4;
+			else if (buf[i + 1] >= 'a' && buf[i + 1] <= 'f')
+				out_buf[temp_index] = (buf[i + 1] - 'a' + 10) << 4;
+			else if (buf[i + 1] >= 'A' && buf[i + 1] <= 'F')
+				out_buf[temp_index] = (buf[i + 1] - 'A' + 10) << 4;
+			if (buf[i + 2] >= '0' && buf[i + 2] <= '9')
+				out_buf[temp_index] += (buf[i + 2] - '0');
+			else if (buf[i + 2] >= 'a' && buf[i + 2] <= 'f')
+				out_buf[temp_index] += (buf[i + 2] - 'a' + 10);
+			else if (buf[i + 2] >= 'A' && buf[i + 2] <= 'F')
+				out_buf[temp_index] += (buf[i + 2] - 'A' + 10);
+			temp_index++;
 		}
-		high = ascii2hex(buf[i + 1]);
-		low = ascii2hex(buf[i + 2]);
-		if (high == 0xff || low == 0xff) {
-			ts_err("failed convert: 0x%x, 0x%x",
-				buf[i + 1], buf[i + 2]);
-			return -EINVAL;
-		}
-		out_buf[temp_index++] = (high << 4) + low;
 	}
 	return 0;
 }
@@ -1512,7 +1524,7 @@ static void goodix_ts_esd_work(struct work_struct *work)
 	int r = 0;
 	u8 data = GOODIX_ESD_TICK_WRITE_DATA;
 
-	if (!atomic_read(&ts_esd->esd_on))
+	if (ts_esd->esd_on == false)
 		return;
 
 	if (hw_ops->check_hw)
@@ -1540,8 +1552,10 @@ static void goodix_ts_esd_work(struct work_struct *work)
 		if (r < 0)
 			ts_err("esd init watch dog FAILED, i2c write ERROR");
 	}
-	if (atomic_read(&ts_esd->esd_on))
+	mutex_lock(&ts_esd->esd_mutex);
+	if (ts_esd->esd_on)
 		schedule_delayed_work(&ts_esd->esd_work, GOODIX_ESD_CHECK_INTERVAL * HZ);
+	mutex_unlock(&ts_esd->esd_mutex);
 }
 
 /**
@@ -1554,11 +1568,15 @@ static void goodix_ts_esd_on(struct goodix_ts_core *core)
 	if(core->ts_dev->reg.esd == 0)
 		return;
 
-	atomic_set(&ts_esd->esd_on, 1);
-	if (!schedule_delayed_work(&ts_esd->esd_work, GOODIX_ESD_CHECK_INTERVAL * HZ)) {
-		ts_info("esd work already in workqueue");
+	mutex_lock(&ts_esd->esd_mutex);
+	if (ts_esd->esd_on == false) {
+		ts_esd->esd_on = true;
+		schedule_delayed_work(&ts_esd->esd_work, GOODIX_ESD_CHECK_INTERVAL * HZ);
+		mutex_unlock(&ts_esd->esd_mutex);
+		ts_info("Esd on");
+		return;
 	}
-	ts_info("esd on");
+	mutex_unlock(&ts_esd->esd_mutex);
 }
 
 /**
@@ -1567,11 +1585,16 @@ static void goodix_ts_esd_on(struct goodix_ts_core *core)
 static void goodix_ts_esd_off(struct goodix_ts_core *core)
 {
 	struct goodix_ts_esd *ts_esd = &core->ts_esd;
-	int ret;
 
-	atomic_set(&ts_esd->esd_on, 0);
-	ret = cancel_delayed_work_sync(&ts_esd->esd_work);
-	ts_info("Esd off, esd work state %d", ret);
+	mutex_lock(&ts_esd->esd_mutex);
+	if (ts_esd->esd_on == true) {
+		ts_esd->esd_on = false;
+		cancel_delayed_work(&ts_esd->esd_work);
+		mutex_unlock(&ts_esd->esd_mutex);
+		ts_info("Esd off");
+		return;
+	}
+	mutex_unlock(&ts_esd->esd_mutex);
 }
 
 /**
@@ -1615,8 +1638,9 @@ int goodix_ts_esd_init(struct goodix_ts_core *core)
 	int r;
 
 	INIT_DELAYED_WORK(&ts_esd->esd_work, goodix_ts_esd_work);
+	mutex_init(&ts_esd->esd_mutex);
 	ts_esd->ts_core = core;
-	atomic_set(&ts_esd->esd_on, 0);
+	ts_esd->esd_on = false;
 	ts_esd->esd_notifier.notifier_call = goodix_esd_notifier_callback;
 	goodix_ts_register_notifier(&ts_esd->esd_notifier);
 
@@ -2417,6 +2441,13 @@ static int goodix_ts_probe(struct platform_device *pdev)
 		ts_err("***start cfg_bin_proc FAILED");
 		goto out;
 	}
+
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+	r = tp_common_set_double_tap_ops(&double_tap_ops);
+	if (r < 0) {
+		ts_err("%s: Failed to create double_tap node err=%d\n", __func__, r);
+	}
+#endif
 
 	core_data->power_supply_notifier.notifier_call = gtp_power_supply_event;
 	power_supply_reg_notifier(&core_data->power_supply_notifier);
