@@ -1439,7 +1439,7 @@ int ipa3_uc_debug_stats_alloc(
 	result = ipa3_uc_send_cmd((u32)(cmd.phys_base),
 		command,
 		IPA_HW_2_CPU_OFFLOAD_CMD_STATUS_SUCCESS,
-		false, 20 * HZ);
+		false, 10 * HZ);
 	if (result) {
 		IPAERR("fail to alloc offload stats\n");
 		goto cleanup;
@@ -1579,11 +1579,6 @@ int ipa3_uc_quota_monitor(uint64_t quota)
 	struct IpaQuotaMonitoring_t *quota_info;
 
 	IPADBG("Enter\n");
-	if (!ipa3_ctx->uc_ctx.uc_event_ring_valid) {
-		IPADBG("uC event ring not initialized\n");
-		return res;
-	}
-
 	cmd.size = sizeof(*quota_info);
 	cmd.base = dma_alloc_coherent(ipa3_ctx->uc_pdev, cmd.size,
 		&cmd.phys_base, GFP_KERNEL);
@@ -1659,11 +1654,6 @@ int ipa3_uc_bw_monitor(struct ipa_wdi_bw_info *info)
 
 	if (!info)
 		return -EINVAL;
-
-	if (!ipa3_ctx->uc_ctx.uc_event_ring_valid) {
-		IPADBG("uC event ring not initialized\n");
-		return res;
-	}
 
 	/* check max entry */
 	if (info->num > BW_MONITORING_MAX_THRESHOLD) {

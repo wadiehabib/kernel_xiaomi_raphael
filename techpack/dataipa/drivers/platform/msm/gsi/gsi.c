@@ -1367,6 +1367,10 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 		gsi_writel(0, gsi_ctx->base +
 			GSI_EE_n_ERROR_LOG_OFFS(gsi_ctx->per.ee));
 
+	/* Reset to zero scratch_1 register*/
+	gsi_writel(0, gsi_ctx->base +
+			GSI_EE_n_CNTXT_SCRATCH_1_OFFS(gsi_ctx->per.ee));
+
 	if (running_emulation) {
 		/*
 		 * Set up the emulator's interrupt controller...
@@ -1752,14 +1756,7 @@ static inline uint64_t gsi_read_event_ring_rp_ddr(struct gsi_evt_ring_props* pro
 static inline uint64_t gsi_read_event_ring_rp_reg(struct gsi_evt_ring_props* props,
 	uint8_t id, int ee)
 {
-	uint64_t rp;
-
-	rp = gsi_readl(gsi_ctx->base +
-		GSI_EE_n_EV_CH_k_CNTXT_4_OFFS(id, ee));
-	rp |= ((uint64_t)gsi_readl(gsi_ctx->base +
-		GSI_EE_n_EV_CH_k_CNTXT_5_OFFS(id, ee))) << 32;
-
-	return rp;
+	return gsi_readl(gsi_ctx->base + GSI_EE_n_EV_CH_k_CNTXT_4_OFFS(id, ee));
 }
 
 int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
@@ -3216,7 +3213,6 @@ int gsi_stop_channel(unsigned long chan_hdl)
 	int res;
 	uint32_t val;
 	struct gsi_chan_ctx *ctx;
-	unsigned long flags;
 
 	if (!gsi_ctx) {
 		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
@@ -3281,15 +3277,6 @@ int gsi_stop_channel(unsigned long chan_hdl)
 		GSIERR("chan=%lu busy try again\n", chan_hdl);
 		res = -GSI_STATUS_AGAIN;
 		goto free_lock;
-	}
-
-	/* If channel is stopped succesfully and has an event with IRQ type MSI
-		- clear IEOB */
-	if (ctx->evtr && ctx->evtr->props.intr == GSI_INTR_MSI) {
-		spin_lock_irqsave(&ctx->evtr->ring.slock, flags);
-		gsi_writel(1 << ctx->evtr->id, gsi_ctx->base +
-			GSI_EE_n_CNTXT_SRC_IEOB_IRQ_CLR_OFFS(gsi_ctx->per.ee));
-		spin_unlock_irqrestore(&ctx->evtr->ring.slock, flags);
 	}
 
 	res = GSI_STATUS_SUCCESS;
@@ -4839,12 +4826,9 @@ int gsi_flow_control_ee(unsigned int chan_idx, unsigned int ee,
 		msecs_to_jiffies(GSI_CMD_TIMEOUT));
 	if (res == 0) {
 		GSIERR("chan_idx=%u ee=%u timed out\n", chan_idx, ee);
-		GSIERR("GSI_EE_n_CNTXT_GLOB_IRQ_EN_OFFS = 0x%x\n",
-				gsi_readl(gsi_ctx->base +
-				GSI_EE_n_CNTXT_GLOB_IRQ_EN_OFFS(gsi_ctx->per.ee)));
-		GSIERR("GSI_EE_n_CNTXT_GLOB_IRQ_STTS_OFFS IRQ type = 0x%x\n",
-				gsi_readl(gsi_ctx->base +
-				GSI_EE_n_CNTXT_GLOB_IRQ_STTS_OFFS(gsi_ctx->per.ee)));
+		res = -GSI_STATUS_TIMED_OUT;
+		GSI_ASSERT();
+		goto free_lock;
 	}
 
 	gsi_ctx->scratch.word0.val = gsi_readl(gsi_ctx->base +

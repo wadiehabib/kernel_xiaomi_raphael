@@ -681,9 +681,8 @@ static ssize_t gsi_read_gsi_hw_profiling_stats(struct file *file,
 		totalCycles = stats.mcs_busy_cnt + stats.mcs_idle_cnt +
 			stats.bp_and_pending_cnt;
 		if (totalCycles != 0)
-			util = div_u64(
-				100 * (stats.mcs_busy_cnt + stats.bp_and_pending_cnt),
-				totalCycles);
+			util = (100 * (stats.mcs_busy_cnt + stats.bp_and_pending_cnt)) /
+			totalCycles;
 		else
 			util = 0;
 
