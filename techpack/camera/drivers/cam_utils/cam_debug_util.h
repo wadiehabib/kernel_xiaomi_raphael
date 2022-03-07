@@ -67,6 +67,18 @@ struct cam_cpas_debug_settings {
 	uint64_t camnoc_bw;
 };
 
+/* add hw trigger - begin */
+/*
+ *  cam_debug_hw_trigger()
+ *
+ * @brief     :  Debug for hw question.set up this as a hw trigger.
+ *               in 8350:cam_hw_trigger_override[0]= 308(offset)+value(in schematic diagram)
+ *
+ * @module_id :  Respective Module ID which is calling this function
+ */
+int cam_debug_hw_trigger(unsigned int module_id);
+/* add hw trigger - end */
+
 /**
  * struct camera_debug_settings - Sysfs debug settings for camera
  *

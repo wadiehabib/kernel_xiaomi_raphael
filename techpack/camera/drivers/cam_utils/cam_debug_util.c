@@ -9,6 +9,9 @@
 #include "cam_trace.h"
 
 #include "cam_debug_util.h"
+#include <linux/gpio.h>
+#include "cam_res_mgr_api.h"
+#include <cam_soc_util.h>
 
 static uint debug_mdl;
 module_param(debug_mdl, uint, 0644);
@@ -18,6 +21,48 @@ static uint debug_type;
 module_param(debug_type, uint, 0644);
 
 struct camera_debug_settings cam_debug;
+
+/* add hw trigger - begin */
+/* cmd 0~3 gpio-pin,gpio-value,debug which Module, gpio flag */
+static int cam_hw_trigger_cnt  = 4;
+static uint cam_hw_trigger_override[4] = {0,0,0,0};
+module_param_array(cam_hw_trigger_override, uint, &cam_hw_trigger_cnt, 0644);
+
+int cam_debug_hw_trigger(unsigned int module_id)
+{
+	int rc = 0;
+	unsigned int current_module_mask = 0;
+	int restore_value = 0;
+
+	current_module_mask = 1 << cam_hw_trigger_override[2];
+	CAM_ERR(CAM_SENSOR, "[cam trigger] debug which module:%d",cam_hw_trigger_override[2]);
+
+	if((cam_hw_trigger_override[0] > 0) && (current_module_mask & module_id)){
+		rc = gpio_request_one(cam_hw_trigger_override[0], cam_hw_trigger_override[3], "TRIGGER");
+		if (rc) {
+			CAM_ERR(CAM_RES, "gpio %d:%s request fails rc = %d",
+				cam_hw_trigger_override[0], "TRIGGER", rc);
+			return rc;
+		}
+
+		gpio_set_value_cansleep(cam_hw_trigger_override[0], cam_hw_trigger_override[1]);
+		CAM_ERR(CAM_SENSOR,
+			"[cam trigger] %s success,pin-name:%d value:%d",
+			cam_get_module_name(module_id),cam_hw_trigger_override[0],cam_hw_trigger_override[1]);
+
+		/*Restore to original state*/
+		usleep_range(1000*1000, 1100*1000);
+		restore_value = !cam_hw_trigger_override[1];
+		gpio_set_value_cansleep(cam_hw_trigger_override[0], restore_value);
+		CAM_ERR(CAM_SENSOR,
+			"[cam trigger] %s restore,pin-name:%d value:%d",
+			cam_get_module_name(module_id),cam_hw_trigger_override[0],restore_value);
+
+		gpio_free(cam_hw_trigger_override[0]);
+	}
+	return rc;
+}
+/* add hw trigger - end */
 
 const struct camera_debug_settings *cam_debug_get_settings()
 {

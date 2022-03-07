@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _CAM_SUBDEV_H_
@@ -17,8 +17,7 @@
 #define CAM_SUBDEVICE_EVENT_MAX 30
 
 enum cam_subdev_message_type_t {
-	CAM_SUBDEV_MESSAGE_IRQ_ERR = 0x1,
-	CAM_SUBDEV_MESSAGE_CLOCK_UPDATE
+	CAM_SUBDEV_MESSAGE_IRQ_ERR = 0x1
 };
 
 /* Enum for close sequence priority */
@@ -47,7 +46,7 @@ enum cam_subdev_close_seq_priority {
  *                             %CAM_IFE_DEVICE_TYPE - identifies as IFE device.
  *                             %CAM_ICP_DEVICE_TYPE - identifies as ICP device.
  * @list:                  list pointer
- * @close_seq_prior:         cam_subdev_close_seq_priority type
+ * @close_seq_prior:       cam_subdev_close_seq_priority type
  *
  * Each instance of a subdev driver should create this struct, either
  * stand-alone or embedded in a larger struct. This structure should be

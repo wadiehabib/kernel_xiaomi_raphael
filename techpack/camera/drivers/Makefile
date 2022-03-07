@@ -162,6 +162,8 @@ camera-$(CONFIG_SPECTRA_SENSOR) += \
 	cam_sensor_module/cam_ois/cam_ois_dev.o \
 	cam_sensor_module/cam_ois/cam_ois_core.o \
 	cam_sensor_module/cam_ois/cam_ois_soc.o \
+	cam_sensor_module/cam_ois/Sem1215.o \
+	cam_sensor_module/cam_ois/Lc898128.o \
 	cam_sensor_module/cam_sensor/cam_sensor_dev.o \
 	cam_sensor_module/cam_sensor/cam_sensor_core.o \
 	cam_sensor_module/cam_sensor/cam_sensor_soc.o \
@@ -227,4 +229,12 @@ obj-$(CONFIG_SPECTRA_CAMERA) += camera.o
 ifeq ($(CONFIG_SPECTRA_CAMERA),m)
 $(info "SPECTRA CAMERA IS BUILT AS DLKM")
 BOARD_VENDOR_KERNEL_MODULES +=  $(KERNEL_MODULES_OUT)/camera.ko
+
+endif
+cameralog-y := \
+    cam_log/cam_log.o
+obj-$(CONFIG_SPECTRA_CAMERA) += cameralog.o
+ifeq ($(CONFIG_SPECTRA_CAMERA),m)
+$(info "SPECTRA CAMERA IS BUILT AS DLKM")
+BOARD_VENDOR_KERNEL_MODULES +=  $(KERNEL_MODULES_OUT)/cameralog.ko
 endif
