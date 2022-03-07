@@ -593,11 +593,11 @@ static int swr_dmic_probe(struct swr_device *pdev)
 	}
 
 	/*
-	 * Add 10msec delay to provide sufficient time for
+	 * Add 5msec delay to provide sufficient time for
 	 * soundwire auto enumeration of slave devices as
 	 * as per HW requirement.
 	 */
-	usleep_range(10000, 10010);
+	usleep_range(5000, 5010);
 	do {
 		/* Add delay for soundwire enumeration */
 		usleep_range(100, 110);

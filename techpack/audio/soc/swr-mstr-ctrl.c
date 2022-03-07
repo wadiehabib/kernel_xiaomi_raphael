@@ -54,6 +54,7 @@
 
 #define ERR_AUTO_SUSPEND_TIMER_VAL 0x1
 
+#define SWRM_INTERRUPT_STATUS_MASK 0x1FDFD
 #define SWRM_LINK_STATUS_RETRY_CNT 100
 
 #define SWRM_ROW_48    48
@@ -1306,11 +1307,15 @@ static void swrm_disable_ports(struct swr_master *master,
 		}
 		value = ((mport->req_ch)
 					<< SWRM_DP_PORT_CTRL_EN_CHAN_SHFT);
+		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 		value |= ((mport->offset2)
 					<< SWRM_DP_PORT_CTRL_OFFSET2_SHFT);
+		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 		value |= ((mport->offset1)
 				<< SWRM_DP_PORT_CTRL_OFFSET1_SHFT);
+		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 		value |= (mport->sinterval & 0xFF);
+		dev_dbg(swrm->dev, "%s: value :%d\n", __func__, value);
 
 		swr_master_write(swrm,
 				SWRM_DP_PORT_CTRL_BANK((i + 1), bank),

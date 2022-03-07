@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
-
+#define DEBUG
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
@@ -61,6 +61,7 @@ enum {
 	ENC_FMT_APTX_HD = ASM_MEDIA_FMT_APTX_HD,
 	ENC_FMT_CELT = ASM_MEDIA_FMT_CELT,
 	ENC_FMT_LDAC = ASM_MEDIA_FMT_LDAC,
+	ENC_FMT_LHDC = ASM_MEDIA_FMT_LHDC,
 	ENC_FMT_APTX_ADAPTIVE = ASM_MEDIA_FMT_APTX_ADAPTIVE,
 	DEC_FMT_APTX_ADAPTIVE = ASM_MEDIA_FMT_APTX_ADAPTIVE,
 	DEC_FMT_MP3 = ASM_MEDIA_FMT_MP3,
@@ -341,7 +342,8 @@ struct msm_dai_q6_mi2s_dai_config {
 
 struct msm_dai_q6_mi2s_dai_data {
 	u32 is_island_dai;
-	struct msm_dai_q6_mi2s_dai_config mi2s_dai;
+	struct msm_dai_q6_mi2s_dai_config tx_dai;
+	struct msm_dai_q6_mi2s_dai_config rx_dai;
 };
 
 struct msm_dai_q6_meta_mi2s_dai_data {
@@ -426,16 +428,11 @@ static const struct soc_enum mi2s_config_enum[] = {
 
 static const char *const cdc_dma_format[] = {
 	"UNPACKED",
-	"UNPACKED_NON_LINEAR",
-	"PACKED_LINEAR_60958",
-	"PACKED_NON_LINEAR_60958",
-	"NULL",
-	"NULL",
-        "PACKED_16B",
+	"PACKED_16B",
 };
 
 static const struct soc_enum cdc_dma_config_enum[] = {
-	SOC_ENUM_SINGLE_EXT(7, cdc_dma_format),
+	SOC_ENUM_SINGLE_EXT(2, cdc_dma_format),
 };
 
 static const char *const sb_format[] = {
@@ -3539,6 +3536,11 @@ static int msm_dai_q6_afe_enc_cfg_get(struct snd_kcontrol *kcontrol,
 				&dai_data->enc_config.data,
 				sizeof(struct asm_ldac_enc_cfg_t));
 			break;
+		case ENC_FMT_LHDC:
+			memcpy(ucontrol->value.bytes.data + format_size,
+				&dai_data->enc_config.data,
+				sizeof(struct asm_lhdc_enc_cfg_t));
+			break;
 		case ENC_FMT_APTX_ADAPTIVE:
 			memcpy(ucontrol->value.bytes.data + format_size,
 				&dai_data->enc_config.data,
@@ -3611,6 +3613,11 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 			memcpy(&dai_data->enc_config.data,
 				ucontrol->value.bytes.data + format_size,
 				sizeof(struct asm_ldac_enc_cfg_t));
+			break;
+		case ENC_FMT_LHDC:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_lhdc_enc_cfg_t));
 			break;
 		case ENC_FMT_APTX_ADAPTIVE:
 			memcpy(&dai_data->enc_config.data,
@@ -4413,6 +4420,14 @@ static const struct soc_enum rt_proxy_1_tx_enum =
 	SOC_ENUM_SINGLE(RT_PROXY_PORT_001_TX, 0, ARRAY_SIZE(afe_cal_mode_text),
 			afe_cal_mode_text);
 
+static const struct soc_enum cdc_dma_tx_4_enum =
+	SOC_ENUM_SINGLE(AFE_PORT_ID_TX_CODEC_DMA_TX_4, 0, ARRAY_SIZE(afe_cal_mode_text),
+			afe_cal_mode_text);
+
+static const struct soc_enum cdc_dma_rx_6_enum =
+	SOC_ENUM_SINGLE(AFE_PORT_ID_RX_CODEC_DMA_RX_6, 0, ARRAY_SIZE(afe_cal_mode_text),
+			afe_cal_mode_text);
+
 static const struct snd_kcontrol_new sb_config_controls[] = {
 	SOC_ENUM_EXT("SLIM_4_TX Format", sb_config_enum[0],
 		     msm_dai_q6_sb_format_get,
@@ -4701,7 +4716,7 @@ static struct snd_soc_dai_driver msm_dai_q6_afe_rx_dai[] = {
 			 .formats = SNDRV_PCM_FMTBIT_S16_LE |
 			 SNDRV_PCM_FMTBIT_S24_LE,
 			 .channels_min = 1,
-			 .channels_max = 10,
+			 .channels_max = 2,
 			 .rate_min =     8000,
 			 .rate_max =	48000,
 		},
@@ -5817,55 +5832,71 @@ static int msm_dai_q6_dai_mi2s_probe(struct snd_soc_dai *dai)
 	u16 dai_id = 0;
 
 	dai->id = mi2s_pdata->intf_id;
-	if (mi2s_dai_data->mi2s_dai.mi2s_dai_data.port_config.i2s.channel_mode) {
-		if (dai->id == MSM_PRIM_MI2S_RX)
+
+	if (mi2s_dai_data->rx_dai.mi2s_dai_data.port_config.i2s.channel_mode) {
+		if (dai->id == MSM_PRIM_MI2S)
 			ctrl = &mi2s_config_controls[0];
-		if (dai->id == MSM_SEC_MI2S_RX)
+		if (dai->id == MSM_SEC_MI2S)
 			ctrl = &mi2s_config_controls[1];
-		if (dai->id == MSM_TERT_MI2S_RX)
+		if (dai->id == MSM_TERT_MI2S)
 			ctrl = &mi2s_config_controls[2];
-		if (dai->id == MSM_QUAT_MI2S_RX)
+		if (dai->id == MSM_QUAT_MI2S)
 			ctrl = &mi2s_config_controls[3];
-		if (dai->id == MSM_QUIN_MI2S_RX)
+		if (dai->id == MSM_QUIN_MI2S)
 			ctrl = &mi2s_config_controls[4];
-		if (dai->id == MSM_SENARY_MI2S_RX)
+		if (dai->id == MSM_SENARY_MI2S)
 			ctrl = &mi2s_config_controls[5];
-		if (dai->id == MSM_PRIM_MI2S_TX)
+	}
+
+	if (ctrl) {
+		kcontrol = snd_ctl_new1(ctrl,
+					&mi2s_dai_data->rx_dai.mi2s_dai_data);
+		rc = snd_ctl_add(dai->component->card->snd_card, kcontrol);
+		if (rc < 0) {
+			dev_err(dai->dev, "%s: err add RX fmt ctl DAI = %s\n",
+				__func__, dai->name);
+			goto rtn;
+		}
+	}
+
+	ctrl = NULL;
+	if (mi2s_dai_data->tx_dai.mi2s_dai_data.port_config.i2s.channel_mode) {
+		if (dai->id == MSM_PRIM_MI2S)
 			ctrl = &mi2s_config_controls[6];
-		if (dai->id == MSM_SEC_MI2S_TX)
+		if (dai->id == MSM_SEC_MI2S)
 			ctrl = &mi2s_config_controls[7];
-		if (dai->id == MSM_TERT_MI2S_TX)
+		if (dai->id == MSM_TERT_MI2S)
 			ctrl = &mi2s_config_controls[8];
-		if (dai->id == MSM_QUAT_MI2S_TX)
+		if (dai->id == MSM_QUAT_MI2S)
 			ctrl = &mi2s_config_controls[9];
-		if (dai->id == MSM_QUIN_MI2S_TX)
+		if (dai->id == MSM_QUIN_MI2S)
 			ctrl = &mi2s_config_controls[10];
-		if (dai->id == MSM_SENARY_MI2S_TX)
+		if (dai->id == MSM_SENARY_MI2S)
 			ctrl = &mi2s_config_controls[11];
-		if (dai->id == MSM_INT5_MI2S_TX)
+		if (dai->id == MSM_INT5_MI2S)
 			ctrl = &mi2s_config_controls[12];
 	}
 
 	if (ctrl) {
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(ctrl,
-				&mi2s_dai_data->mi2s_dai.mi2s_dai_data));
+				&mi2s_dai_data->tx_dai.mi2s_dai_data));
 		if (rc < 0) {
 			if (kcontrol)
 				snd_ctl_remove(dai->component->card->snd_card,
 						kcontrol);
-			dev_err(dai->dev, "%s: err add MI2S fmt ctl DAI = %s\n",
+			dev_err(dai->dev, "%s: err add TX fmt ctl DAI = %s\n",
 				__func__, dai->name);
 		}
 	}
 
-	if (dai->id == MSM_INT5_MI2S_TX)
+	if (dai->id == MSM_INT5_MI2S)
 		vi_feed_ctrl = &mi2s_vi_feed_controls[0];
 
 	if (vi_feed_ctrl) {
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(vi_feed_ctrl,
-				&mi2s_dai_data->mi2s_dai.mi2s_dai_data));
+				&mi2s_dai_data->tx_dai.mi2s_dai_data));
 
 		if (rc < 0) {
 			dev_err(dai->dev, "%s: err add TX vi feed channel ctl DAI = %s\n",
@@ -5883,6 +5914,7 @@ static int msm_dai_q6_dai_mi2s_probe(struct snd_soc_dai *dai)
 	}
 
 	rc = msm_dai_q6_dai_add_route(dai);
+rtn:
 	return rc;
 }
 
@@ -5892,22 +5924,23 @@ static int msm_dai_q6_dai_mi2s_remove(struct snd_soc_dai *dai)
 	struct msm_dai_q6_mi2s_dai_data *mi2s_dai_data =
 		dev_get_drvdata(dai->dev);
 	int rc;
-	bool rx_port_en = false;
 
 	/* If AFE port is still up, close it */
-	if (strnstr(dev_name(dai->dev), "rx", strlen(dev_name(dai->dev)))
-	    != NULL)
-		rx_port_en = true;
 	if (test_bit(STATUS_PORT_STARTED,
-		     mi2s_dai_data->mi2s_dai.mi2s_dai_data.status_mask)) {
-		if (rx_port_en)
-			rc = afe_close(MI2S_RX); /* can block */
-		else
-			rc = afe_close(MI2S_TX); /* can block */
+		     mi2s_dai_data->rx_dai.mi2s_dai_data.status_mask)) {
+		rc = afe_close(MI2S_RX); /* can block */
 		if (rc < 0)
 			dev_err(dai->dev, "fail to close MI2S_RX port\n");
 		clear_bit(STATUS_PORT_STARTED,
-			  mi2s_dai_data->mi2s_dai.mi2s_dai_data.status_mask);
+			  mi2s_dai_data->rx_dai.mi2s_dai_data.status_mask);
+	}
+	if (test_bit(STATUS_PORT_STARTED,
+		     mi2s_dai_data->tx_dai.mi2s_dai_data.status_mask)) {
+		rc = afe_close(MI2S_TX); /* can block */
+		if (rc < 0)
+			dev_err(dai->dev, "fail to close MI2S_TX port\n");
+		clear_bit(STATUS_PORT_STARTED,
+			  mi2s_dai_data->tx_dai.mi2s_dai_data.status_mask);
 	}
 	return 0;
 }
@@ -5926,46 +5959,46 @@ static int msm_mi2s_get_port_id(u32 mi2s_id, int stream, u16 *port_id)
 	switch (stream) {
 	case SNDRV_PCM_STREAM_PLAYBACK:
 		switch (mi2s_id) {
-		case MSM_PRIM_MI2S_RX:
+		case MSM_PRIM_MI2S:
 			*port_id = AFE_PORT_ID_PRIMARY_MI2S_RX;
 			break;
-		case MSM_SEC_MI2S_RX:
+		case MSM_SEC_MI2S:
 			*port_id = AFE_PORT_ID_SECONDARY_MI2S_RX;
 			break;
-		case MSM_TERT_MI2S_RX:
+		case MSM_TERT_MI2S:
 			*port_id = AFE_PORT_ID_TERTIARY_MI2S_RX;
 			break;
-		case MSM_QUAT_MI2S_RX:
+		case MSM_QUAT_MI2S:
 			*port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
 			break;
 		case MSM_SEC_MI2S_SD1:
 			*port_id = AFE_PORT_ID_SECONDARY_MI2S_RX_SD1;
 			break;
-		case MSM_QUIN_MI2S_RX:
+		case MSM_QUIN_MI2S:
 			*port_id = AFE_PORT_ID_QUINARY_MI2S_RX;
 			break;
-		case MSM_SENARY_MI2S_RX:
+		case MSM_SENARY_MI2S:
 			*port_id = AFE_PORT_ID_SENARY_MI2S_RX;
 			break;
-		case MSM_INT0_MI2S_RX:
+		case MSM_INT0_MI2S:
 			*port_id = AFE_PORT_ID_INT0_MI2S_RX;
 			break;
-		case MSM_INT1_MI2S_RX:
+		case MSM_INT1_MI2S:
 			*port_id = AFE_PORT_ID_INT1_MI2S_RX;
 			break;
-		case MSM_INT2_MI2S_RX:
+		case MSM_INT2_MI2S:
 			*port_id = AFE_PORT_ID_INT2_MI2S_RX;
 			break;
-		case MSM_INT3_MI2S_RX:
+		case MSM_INT3_MI2S:
 			*port_id = AFE_PORT_ID_INT3_MI2S_RX;
 			break;
-		case MSM_INT4_MI2S_RX:
+		case MSM_INT4_MI2S:
 			*port_id = AFE_PORT_ID_INT4_MI2S_RX;
 			break;
-		case MSM_INT5_MI2S_RX:
+		case MSM_INT5_MI2S:
 			*port_id = AFE_PORT_ID_INT5_MI2S_RX;
 			break;
-		case MSM_INT6_MI2S_RX:
+		case MSM_INT6_MI2S:
 			*port_id = AFE_PORT_ID_INT6_MI2S_RX;
 			break;
 		default:
@@ -5977,43 +6010,43 @@ static int msm_mi2s_get_port_id(u32 mi2s_id, int stream, u16 *port_id)
 	break;
 	case SNDRV_PCM_STREAM_CAPTURE:
 		switch (mi2s_id) {
-		case MSM_PRIM_MI2S_TX:
+		case MSM_PRIM_MI2S:
 			*port_id = AFE_PORT_ID_PRIMARY_MI2S_TX;
 			break;
-		case MSM_SEC_MI2S_TX:
+		case MSM_SEC_MI2S:
 			*port_id = AFE_PORT_ID_SECONDARY_MI2S_TX;
 			break;
-		case MSM_TERT_MI2S_TX:
+		case MSM_TERT_MI2S:
 			*port_id = AFE_PORT_ID_TERTIARY_MI2S_TX;
 			break;
-		case MSM_QUAT_MI2S_TX:
+		case MSM_QUAT_MI2S:
 			*port_id = AFE_PORT_ID_QUATERNARY_MI2S_TX;
 			break;
-		case MSM_QUIN_MI2S_TX:
+		case MSM_QUIN_MI2S:
 			*port_id = AFE_PORT_ID_QUINARY_MI2S_TX;
 			break;
-		case MSM_SENARY_MI2S_TX:
+		case MSM_SENARY_MI2S:
 			*port_id = AFE_PORT_ID_SENARY_MI2S_TX;
 			break;
-		case MSM_INT0_MI2S_TX:
+		case MSM_INT0_MI2S:
 			*port_id = AFE_PORT_ID_INT0_MI2S_TX;
 			break;
-		case MSM_INT1_MI2S_TX:
+		case MSM_INT1_MI2S:
 			*port_id = AFE_PORT_ID_INT1_MI2S_TX;
 			break;
-		case MSM_INT2_MI2S_TX:
+		case MSM_INT2_MI2S:
 			*port_id = AFE_PORT_ID_INT2_MI2S_TX;
 			break;
-		case MSM_INT3_MI2S_TX:
+		case MSM_INT3_MI2S:
 			*port_id = AFE_PORT_ID_INT3_MI2S_TX;
 			break;
-		case MSM_INT4_MI2S_TX:
+		case MSM_INT4_MI2S:
 			*port_id = AFE_PORT_ID_INT4_MI2S_TX;
 			break;
-		case MSM_INT5_MI2S_TX:
+		case MSM_INT5_MI2S:
 			*port_id = AFE_PORT_ID_INT5_MI2S_TX;
 			break;
-		case MSM_INT6_MI2S_TX:
+		case MSM_INT6_MI2S:
 			*port_id = AFE_PORT_ID_INT6_MI2S_TX;
 			break;
 		default:
@@ -6037,7 +6070,9 @@ static int msm_dai_q6_mi2s_prepare(struct snd_pcm_substream *substream,
 	struct msm_dai_q6_mi2s_dai_data *mi2s_dai_data =
 		dev_get_drvdata(dai->dev);
 	struct msm_dai_q6_dai_data *dai_data =
-		 &mi2s_dai_data->mi2s_dai.mi2s_dai_data;
+		(substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+		 &mi2s_dai_data->rx_dai.mi2s_dai_data :
+		 &mi2s_dai_data->tx_dai.mi2s_dai_data);
 	u16 port_id = 0;
 	int rc = 0;
 
@@ -6080,7 +6115,8 @@ static int msm_dai_q6_mi2s_hw_params(struct snd_pcm_substream *substream,
 	struct msm_dai_q6_mi2s_dai_data *mi2s_dai_data =
 		dev_get_drvdata(dai->dev);
 	struct msm_dai_q6_mi2s_dai_config *mi2s_dai_config =
-		&mi2s_dai_data->mi2s_dai;
+		(substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+		&mi2s_dai_data->rx_dai : &mi2s_dai_data->tx_dai);
 	struct msm_dai_q6_dai_data *dai_data = &mi2s_dai_config->mi2s_dai_data;
 	struct afe_param_id_i2s_cfg *i2s = &dai_data->port_config.i2s;
 
@@ -6265,7 +6301,29 @@ static int msm_dai_q6_mi2s_hw_params(struct snd_pcm_substream *substream,
 	dai_data->port_config.i2s.i2s_cfg_minor_version =
 			AFE_API_VERSION_I2S_CONFIG;
 	dai_data->port_config.i2s.sample_rate = dai_data->rate;
-
+	if ((test_bit(STATUS_PORT_STARTED,
+	    mi2s_dai_data->rx_dai.mi2s_dai_data.status_mask) &&
+	    test_bit(STATUS_PORT_STARTED,
+	    mi2s_dai_data->rx_dai.mi2s_dai_data.hwfree_status)) ||
+	    (test_bit(STATUS_PORT_STARTED,
+	    mi2s_dai_data->tx_dai.mi2s_dai_data.status_mask) &&
+	    test_bit(STATUS_PORT_STARTED,
+	    mi2s_dai_data->tx_dai.mi2s_dai_data.hwfree_status))) {
+		if ((mi2s_dai_data->tx_dai.mi2s_dai_data.rate !=
+		    mi2s_dai_data->rx_dai.mi2s_dai_data.rate) ||
+		   (mi2s_dai_data->rx_dai.mi2s_dai_data.bitwidth !=
+		    mi2s_dai_data->tx_dai.mi2s_dai_data.bitwidth)) {
+			dev_err(dai->dev, "%s: Error mismatch in HW params\n"
+				"Tx sample_rate = %u bit_width = %hu\n"
+				"Rx sample_rate = %u bit_width = %hu\n"
+				, __func__,
+				mi2s_dai_data->tx_dai.mi2s_dai_data.rate,
+				mi2s_dai_data->tx_dai.mi2s_dai_data.bitwidth,
+				mi2s_dai_data->rx_dai.mi2s_dai_data.rate,
+				mi2s_dai_data->rx_dai.mi2s_dai_data.bitwidth);
+			return -EINVAL;
+		}
+	}
 	dev_dbg(dai->dev, "%s: dai id %d dai_data->channels = %d\n"
 		"sample_rate = %u i2s_cfg_minor_version = 0x%x\n"
 		"bit_width = %hu  channel_mode = 0x%x mono_stereo = %#x\n"
@@ -6290,7 +6348,9 @@ static int msm_dai_q6_mi2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	dev_get_drvdata(dai->dev);
 
 	if (test_bit(STATUS_PORT_STARTED,
-	    mi2s_dai_data->mi2s_dai.mi2s_dai_data.status_mask)) {
+	    mi2s_dai_data->rx_dai.mi2s_dai_data.status_mask) ||
+	    test_bit(STATUS_PORT_STARTED,
+	    mi2s_dai_data->tx_dai.mi2s_dai_data.status_mask)) {
 		dev_err(dai->dev, "%s: err chg i2s mode while dai running",
 			__func__);
 		return -EPERM;
@@ -6299,10 +6359,12 @@ static int msm_dai_q6_mi2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 	case SND_SOC_DAIFMT_CBM_CFS:
-		mi2s_dai_data->mi2s_dai.mi2s_dai_data.port_config.i2s.ws_src = 1;
+		mi2s_dai_data->rx_dai.mi2s_dai_data.port_config.i2s.ws_src = 1;
+		mi2s_dai_data->tx_dai.mi2s_dai_data.port_config.i2s.ws_src = 1;
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		mi2s_dai_data->mi2s_dai.mi2s_dai_data.port_config.i2s.ws_src = 0;
+		mi2s_dai_data->rx_dai.mi2s_dai_data.port_config.i2s.ws_src = 0;
+		mi2s_dai_data->tx_dai.mi2s_dai_data.port_config.i2s.ws_src = 0;
 		break;
 	default:
 		pr_err("%s: fmt %d\n",
@@ -6319,7 +6381,9 @@ static int msm_dai_q6_mi2s_hw_free(struct snd_pcm_substream *substream,
 	struct msm_dai_q6_mi2s_dai_data *mi2s_dai_data =
 			dev_get_drvdata(dai->dev);
 	struct msm_dai_q6_dai_data *dai_data =
-		 &mi2s_dai_data->mi2s_dai.mi2s_dai_data;
+		(substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+		 &mi2s_dai_data->rx_dai.mi2s_dai_data :
+		 &mi2s_dai_data->tx_dai.mi2s_dai_data);
 
 	if (test_bit(STATUS_PORT_STARTED, dai_data->hwfree_status)) {
 		clear_bit(STATUS_PORT_STARTED, dai_data->hwfree_status);
@@ -6334,7 +6398,9 @@ static void msm_dai_q6_mi2s_shutdown(struct snd_pcm_substream *substream,
 	struct msm_dai_q6_mi2s_dai_data *mi2s_dai_data =
 			dev_get_drvdata(dai->dev);
 	struct msm_dai_q6_dai_data *dai_data =
-		 &mi2s_dai_data->mi2s_dai.mi2s_dai_data;
+		(substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
+		 &mi2s_dai_data->rx_dai.mi2s_dai_data :
+		 &mi2s_dai_data->tx_dai.mi2s_dai_data);
 	 u16 port_id = 0;
 	int rc = 0;
 
@@ -6385,13 +6451,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     384000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Primary MI2S_RX",
-		.id = MSM_PRIM_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "Primary MI2S Capture",
 			.aif_name = "PRI_MI2S_TX",
@@ -6405,8 +6464,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     192000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Primary MI2S_TX",
-		.id = MSM_PRIM_MI2S_TX,
+		.name = "Primary MI2S",
+		.id = MSM_PRIM_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6423,13 +6482,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Secondary MI2S_RX",
-		.id = MSM_SEC_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "Secondary MI2S Capture",
 			.aif_name = "SEC_MI2S_TX",
@@ -6443,8 +6495,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     192000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Secondary MI2S_TX",
-		.id = MSM_SEC_MI2S_TX,
+		.name = "Secondary MI2S",
+		.id = MSM_SEC_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6461,13 +6513,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Tertiary MI2S_RX",
-		.id = MSM_TERT_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "Tertiary MI2S Capture",
 			.aif_name = "TERT_MI2S_TX",
@@ -6481,8 +6526,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     192000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Tertiary MI2S_TX",
-		.id = MSM_TERT_MI2S_TX,
+		.name = "Tertiary MI2S",
+		.id = MSM_TERT_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6499,13 +6544,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Quaternary MI2S_RX",
-		.id = MSM_QUAT_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "Quaternary MI2S Capture",
 			.aif_name = "QUAT_MI2S_TX",
@@ -6519,8 +6557,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     192000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Quaternary MI2S_TX",
-		.id = MSM_QUAT_MI2S_TX,
+		.name = "Quaternary MI2S",
+		.id = MSM_QUAT_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6535,13 +6573,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Quinary MI2S_RX",
-		.id = MSM_QUIN_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "Quinary MI2S Capture",
 			.aif_name = "QUIN_MI2S_TX",
@@ -6552,8 +6583,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Quinary MI2S_TX",
-		.id = MSM_QUIN_MI2S_TX,
+		.name = "Quinary MI2S",
+		.id = MSM_QUIN_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6567,13 +6598,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     48000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Senary MI2S_RX",
-		.id = MSM_SENARY_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "Senary MI2S Capture",
 			.aif_name = "SENARY_MI2S_TX",
@@ -6584,8 +6608,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "Senary MI2S_TX",
-		.id = MSM_SENARY_MI2S_TX,
+		.name = "Senary MI2S",
+		.id = MSM_SENARY_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6614,13 +6638,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT0 MI2S_RX",
-		.id = MSM_INT0_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT0 MI2S Capture",
 			.aif_name = "INT0_MI2S_TX",
@@ -6631,8 +6648,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT0 MI2S_TX",
-		.id = MSM_INT0_MI2S_TX,
+		.name = "INT0 MI2S",
+		.id = MSM_INT0_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6648,13 +6665,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     48000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT1 MI2S_RX",
-		.id = MSM_INT1_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT1 MI2S Capture",
 			.aif_name = "INT1_MI2S_TX",
@@ -6665,8 +6675,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT1 MI2S_TX",
-		.id = MSM_INT1_MI2S_TX,
+		.name = "INT1 MI2S",
+		.id = MSM_INT1_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6682,13 +6692,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     48000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT2 MI2S_RX",
-		.id = MSM_INT2_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT2 MI2S Capture",
 			.aif_name = "INT2_MI2S_TX",
@@ -6699,8 +6702,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT2 MI2S_TX",
-		.id = MSM_INT2_MI2S_TX,
+		.name = "INT2 MI2S",
+		.id = MSM_INT2_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6716,13 +6719,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     48000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT3 MI2S_RX",
-		.id = MSM_INT3_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT3 MI2S Capture",
 			.aif_name = "INT3_MI2S_TX",
@@ -6733,8 +6729,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT3 MI2S_TX",
-		.id = MSM_INT3_MI2S_TX,
+		.name = "INT3 MI2S",
+		.id = MSM_INT3_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6751,13 +6747,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT4 MI2S_RX",
-		.id = MSM_INT4_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT4 MI2S Capture",
 			.aif_name = "INT4_MI2S_TX",
@@ -6768,8 +6757,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT4 MI2S_TX",
-		.id = MSM_INT4_MI2S_TX,
+		.name = "INT4 MI2S",
+		.id = MSM_INT4_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6785,13 +6774,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     48000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT5 MI2S_RX",
-		.id = MSM_INT5_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT5 MI2S Capture",
 			.aif_name = "INT5_MI2S_TX",
@@ -6802,8 +6784,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT5 MI2S_TX",
-		.id = MSM_INT5_MI2S_TX,
+		.name = "INT5 MI2S",
+		.id = MSM_INT5_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -6819,13 +6801,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_min =     8000,
 			.rate_max =     48000,
 		},
-		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT6 MI2S_RX",
-		.id = MSM_INT6_MI2S_RX,
-		.probe = msm_dai_q6_dai_mi2s_probe,
-		.remove = msm_dai_q6_dai_mi2s_remove,
-	},
-	{
 		.capture = {
 			.stream_name = "INT6 MI2S Capture",
 			.aif_name = "INT6_MI2S_TX",
@@ -6836,8 +6811,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.rate_max =     48000,
 		},
 		.ops = &msm_dai_q6_mi2s_ops,
-		.name = "INT6 MI2S_TX",
-		.id = MSM_INT6_MI2S_TX,
+		.name = "INT6 MI2S",
+		.id = MSM_INT6_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
 	},
@@ -7042,39 +7017,44 @@ static int msm_dai_q6_mi2s_platform_data_validation(
 		return -EINVAL;
 	}
 
-	rc = msm_dai_q6_mi2s_get_lineconfig(mi2s_pdata->sd_lines,
-				&sd_line, &ch_cnt);
+	rc = msm_dai_q6_mi2s_get_lineconfig(mi2s_pdata->rx_sd_lines,
+					    &sd_line, &ch_cnt);
 	if (rc < 0) {
 		dev_err(&pdev->dev, "invalid MI2S RX sd line config\n");
 		goto rtn;
 	}
 
-	if (strnstr(dev_name(&pdev->dev), "rx", strlen(dev_name(&pdev->dev)))
-		!= NULL) {
-		if (ch_cnt) {
-			dai_data->mi2s_dai.mi2s_dai_data.port_config.i2s.channel_mode =
-			sd_line;
-			dai_data->mi2s_dai.pdata_mi2s_lines = sd_line;
-			dai_driver->playback.channels_min = 1;
-			dai_driver->playback.channels_max = ch_cnt << 1;
-		} else {
-			dai_driver->playback.channels_min = 0;
-			dai_driver->playback.channels_max = 0;
-		}
+	if (ch_cnt) {
+		dai_data->rx_dai.mi2s_dai_data.port_config.i2s.channel_mode =
+		sd_line;
+		dai_data->rx_dai.pdata_mi2s_lines = sd_line;
+		dai_driver->playback.channels_min = 1;
+		dai_driver->playback.channels_max = ch_cnt << 1;
 	} else {
-		if (ch_cnt) {
-			dai_data->mi2s_dai.mi2s_dai_data.port_config.i2s.channel_mode =
-			sd_line;
-			dai_data->mi2s_dai.pdata_mi2s_lines = sd_line;
-			dai_driver->capture.channels_min = 1;
-			dai_driver->capture.channels_max = ch_cnt << 1;
-		} else {
-			dai_driver->capture.channels_min = 0;
-			dai_driver->capture.channels_max = 0;
-		}
+		dai_driver->playback.channels_min = 0;
+		dai_driver->playback.channels_max = 0;
 	}
-	dev_dbg(&pdev->dev, "%s: sdlines 0x%x\n",
-		__func__, dai_data->mi2s_dai.pdata_mi2s_lines);
+	rc = msm_dai_q6_mi2s_get_lineconfig(mi2s_pdata->tx_sd_lines,
+					    &sd_line, &ch_cnt);
+	if (rc < 0) {
+		dev_err(&pdev->dev, "invalid MI2S TX sd line config\n");
+		goto rtn;
+	}
+
+	if (ch_cnt) {
+		dai_data->tx_dai.mi2s_dai_data.port_config.i2s.channel_mode =
+		sd_line;
+		dai_data->tx_dai.pdata_mi2s_lines = sd_line;
+		dai_driver->capture.channels_min = 1;
+		dai_driver->capture.channels_max = ch_cnt << 1;
+	} else {
+		dai_driver->capture.channels_min = 0;
+		dai_driver->capture.channels_max = 0;
+	}
+
+	dev_dbg(&pdev->dev, "%s: playback sdline 0x%x capture sdline 0x%x\n",
+		__func__, dai_data->rx_dai.pdata_mi2s_lines,
+		dai_data->tx_dai.pdata_mi2s_lines);
 	dev_dbg(&pdev->dev, "%s: playback ch_max %d capture ch_mx %d\n",
 		__func__, dai_driver->playback.channels_max,
 		dai_driver->capture.channels_max);
@@ -7089,7 +7069,8 @@ static int msm_dai_q6_mi2s_dev_probe(struct platform_device *pdev)
 {
 	struct msm_dai_q6_mi2s_dai_data *dai_data;
 	const char *q6_mi2s_dev_id = "qcom,msm-dai-q6-mi2s-dev-id";
-	u32 mi2s_intf_line = 0;
+	u32 tx_line = 0;
+	u32  rx_line = 0;
 	u32 mi2s_intf = 0;
 	struct msm_mi2s_pdata *mi2s_pdata;
 	int rc;
@@ -7102,8 +7083,8 @@ static int msm_dai_q6_mi2s_dev_probe(struct platform_device *pdev)
 		goto rtn;
 	}
 
-	dev_dbg(&pdev->dev, "dev name %s dev id 0x%x\n",
-		dev_name(&pdev->dev), mi2s_intf);
+	dev_dbg(&pdev->dev, "dev name %s dev id 0x%x\n", dev_name(&pdev->dev),
+		mi2s_intf);
 
 	if ((mi2s_intf < MSM_MI2S_MIN || mi2s_intf > MSM_MI2S_MAX)
 		|| (mi2s_intf >= ARRAY_SIZE(msm_dai_q6_mi2s_dai))) {
@@ -7122,16 +7103,25 @@ static int msm_dai_q6_mi2s_dev_probe(struct platform_device *pdev)
 		goto rtn;
 	}
 
-	rc = of_property_read_u32(pdev->dev.of_node,
-			"qcom,msm-mi2s-lines", &mi2s_intf_line);
+	rc = of_property_read_u32(pdev->dev.of_node, "qcom,msm-mi2s-rx-lines",
+				  &rx_line);
 	if (rc) {
-		dev_err(&pdev->dev,
-			"%s: Mi2s line from DT file %s\n", __func__,
-			"qcom,msm-mi2s-lines");
+		dev_err(&pdev->dev, "%s: Rx line from DT file %s\n", __func__,
+			"qcom,msm-mi2s-rx-lines");
 		goto free_pdata;
 	}
 
-	mi2s_pdata->sd_lines = mi2s_intf_line;
+	rc = of_property_read_u32(pdev->dev.of_node, "qcom,msm-mi2s-tx-lines",
+				  &tx_line);
+	if (rc) {
+		dev_err(&pdev->dev, "%s: Tx line from DT file %s\n", __func__,
+			"qcom,msm-mi2s-tx-lines");
+		goto free_pdata;
+	}
+	dev_dbg(&pdev->dev, "dev name %s Rx line 0x%x , Tx ine 0x%x\n",
+		dev_name(&pdev->dev), rx_line, tx_line);
+	mi2s_pdata->rx_sd_lines = rx_line;
+	mi2s_pdata->tx_sd_lines = tx_line;
 	mi2s_pdata->intf_id = mi2s_intf;
 
 	dai_data = kzalloc(sizeof(struct msm_dai_q6_mi2s_dai_data),
@@ -15125,6 +15115,12 @@ static const struct snd_kcontrol_new cdc_dma_config_controls[] = {
 		     xt_logging_disable_enum[0],
 		     msm_dai_q6_cdc_dma_xt_logging_disable_get,
 		     msm_dai_q6_cdc_dma_xt_logging_disable_put),
+	SOC_ENUM_EXT("CDC_DMA_RX_6 SetCalMode", cdc_dma_rx_6_enum,
+		     msm_dai_q6_cal_info_get,
+		     msm_dai_q6_cal_info_put),
+	SOC_ENUM_EXT("CDC_DMA_TX_4 SetCalMode", cdc_dma_tx_4_enum,
+		     msm_dai_q6_cal_info_get,
+		     msm_dai_q6_cal_info_put),
 };
 
 /* SOC probe for codec DMA interface */
@@ -15156,6 +15152,17 @@ static int msm_dai_q6_dai_cdc_dma_probe(struct snd_soc_dai *dai)
 				 snd_ctl_new1(&cdc_dma_config_controls[1],
 				 dai_data));
 		break;
+	case AFE_PORT_ID_RX_CODEC_DMA_RX_6:
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				 snd_ctl_new1(&cdc_dma_config_controls[2],
+				 dai_data));
+		break;
+	case AFE_PORT_ID_TX_CODEC_DMA_TX_4:
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				 snd_ctl_new1(&cdc_dma_config_controls[3],
+				 dai_data));
+		break;
+
 	default:
 		break;
 	}
