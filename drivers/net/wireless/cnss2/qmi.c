@@ -21,6 +21,7 @@
 #define ELF_BDF_FILE_NAME_GF_PREFIX	"bdwlang.e"
 
 #define ELF_BDF_FILE_NAME_K2		 "bd_k2.elf"
+#define ELF_BDF_FILE_NAME_K3S            "bd_k3s.elf"
 #define ELF_BDF_FILE_NAME_K11            "bd_k11.elf"
 #define ELF_BDF_FILE_NAME_K11_GLOBAL     "bd_k11gl.elf"
 #define ELF_BDF_FILE_NAME_K11_NO_CRYSTAL            "bd_k11_2.elf"
@@ -536,6 +537,8 @@ static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 		if (plat_priv->board_info.board_id == 0xFF) {
 			if (hw_platform_ver == HARDWARE_PROJECT_K2) {
 				snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME_K2);
+                        } else if (hw_platform_ver == HARDWARE_PROJECT_K3S) {
+                                snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME_K3S);
 			} else if (hw_platform_ver == HARDWARE_PROJECT_K11) {
 				if((uint32_t)CountryGlobal == hw_country_ver){
 					if ((hw_version_build < 2) || ((hw_version_major == 22) && (hw_version_minor == 0)))
