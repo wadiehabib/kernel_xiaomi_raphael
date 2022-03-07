@@ -43,6 +43,7 @@
   wakeup_source_remove
   wakeup_source_add
   wakeup_source_create
+  mipi_dsi_dcs_read
 
 # required by exfat.ko
   block_write_full_page
