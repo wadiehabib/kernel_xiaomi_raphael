@@ -35,7 +35,7 @@ struct msm_commit {
 };
 
 static inline bool _msm_seamless_for_crtc(struct drm_device *dev,
-			struct drm_atomic_state *state,
+		 	struct drm_atomic_state *state,
 			struct drm_crtc_state *crtc_state, bool enable)
 {
 	struct drm_connector *connector = NULL;
@@ -55,7 +55,7 @@ static inline bool _msm_seamless_for_crtc(struct drm_device *dev,
 	if (msm_is_mode_seamless_dms(&crtc_state->adjusted_mode) && !enable)
 		return true;
 
-	if (!crtc_state->mode_changed && crtc_state->connectors_changed && crtc_state->active) {
+	if (!crtc_state->mode_changed && crtc_state->connectors_changed) {
 		for_each_old_connector_in_state(state, connector,
 				conn_state, i) {
 			if ((conn_state->crtc == crtc_state->crtc) ||
@@ -65,7 +65,7 @@ static inline bool _msm_seamless_for_crtc(struct drm_device *dev,
 
 			if (kms && kms->funcs && kms->funcs->check_for_splash)
 				splash_en = kms->funcs->check_for_splash(kms,
-							crtc_state->crtc);
+						crtc_state->crtc);
 
 			if (MULTIPLE_CONN_DETECTED(conn_cnt) && !splash_en)
 				return true;
@@ -281,9 +281,6 @@ msm_crtc_set_mode(struct drm_device *dev, struct drm_atomic_state *old_state)
 		new_crtc_state = connector->state->crtc->state;
 		mode = &new_crtc_state->mode;
 		adjusted_mode = &new_crtc_state->adjusted_mode;
-
-		if (!new_crtc_state->active)
-			continue;
 
 		if (!new_crtc_state->mode_changed &&
 				new_crtc_state->connectors_changed) {

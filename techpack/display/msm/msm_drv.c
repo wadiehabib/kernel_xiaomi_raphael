@@ -41,7 +41,6 @@
 #include <linux/kthread.h>
 #include <uapi/linux/sched/types.h>
 #include <drm/drm_of.h>
-#include <drm/drm_auth.h>
 #include <drm/drm_probe_helper.h>
 
 #include "msm_drv.h"
@@ -66,6 +65,9 @@
 #define MSM_VERSION_MINOR	4
 #define MSM_VERSION_PATCHLEVEL	0
 
+atomic_t resume_pending;
+wait_queue_head_t resume_wait_q;
+
 #define LASTCLOSE_TIMEOUT_MS	500
 
 #define msm_wait_event_timeout(waitq, cond, timeout_ms, ret)		\
@@ -82,8 +84,6 @@
 		} while ((!cond) && (ret == 0) &&			\
 			(ktime_compare_safe(exp_ktime, cur_ktime) > 0));\
 	} while (0)
-
-static DEFINE_MUTEX(msm_release_lock);
 
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
@@ -992,15 +992,6 @@ static void context_close(struct msm_file_private *ctx)
 	kfree(ctx);
 }
 
-static void msm_preclose(struct drm_device *dev, struct drm_file *file)
-{
-	struct msm_drm_private *priv = dev->dev_private;
-	struct msm_kms *kms = priv->kms;
-
-	if (kms && kms->funcs && kms->funcs->preclose)
-		kms->funcs->preclose(kms, file);
-}
-
 static void msm_postclose(struct drm_device *dev, struct drm_file *file)
 {
 	struct msm_drm_private *priv = dev->dev_private;
@@ -1488,27 +1479,14 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 
 static int msm_release(struct inode *inode, struct file *filp)
 {
-	struct drm_file *file_priv;
-	struct drm_minor *minor;
-	struct drm_device *dev;
-	struct msm_drm_private *priv;
+	struct drm_file *file_priv = filp->private_data;
+	struct drm_minor *minor = file_priv->minor;
+	struct drm_device *dev = minor->dev;
+	struct msm_drm_private *priv = dev->dev_private;
 	struct msm_drm_event *node, *temp, *tmp_node;
 	u32 count;
 	unsigned long flags;
 	LIST_HEAD(tmp_head);
-	int ret = 0;
-
-	mutex_lock(&msm_release_lock);
-
-	file_priv = filp->private_data;
-	if (!file_priv) {
-		ret = -EINVAL;
-		goto end;
-	}
-
-	minor = file_priv->minor;
-	dev = minor->dev;
-	priv = dev->dev_private;
 
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry_safe(node, temp, &priv->client_event_list,
@@ -1538,19 +1516,7 @@ static int msm_release(struct inode *inode, struct file *filp)
 		kfree(node);
 	}
 
-	/**
-	 * Handle preclose operation here for removing fb's whose
-	 * refcount > 1. This operation is not triggered from upstream
-	 * drm as msm_driver does not support DRIVER_LEGACY feature.
-	 */
-	if (drm_is_current_master(file_priv))
-		msm_preclose(dev, file_priv);
-
-	ret = drm_release(inode, filp);
-	filp->private_data = NULL;
-end:
-	mutex_unlock(&msm_release_lock);
-	return ret;
+	return drm_release(inode, filp);
 }
 
 /**
@@ -1789,6 +1755,19 @@ static struct drm_driver msm_driver = {
 };
 
 #ifdef CONFIG_PM_SLEEP
+static int msm_pm_prepare(struct device *dev)
+{
+	atomic_inc(&resume_pending);
+	return 0;
+}
+
+static void msm_pm_complete(struct device *dev)
+{
+	atomic_set(&resume_pending, 0);
+	wake_up_all(&resume_wait_q);
+	return;
+}
+
 static int msm_pm_suspend(struct device *dev)
 {
 	struct drm_device *ddev;
@@ -1874,6 +1853,8 @@ static int msm_runtime_resume(struct device *dev)
 #endif
 
 static const struct dev_pm_ops msm_pm_ops = {
+	.prepare = msm_pm_prepare,
+	.complete = msm_pm_complete,
 	SET_SYSTEM_SLEEP_PM_OPS(msm_pm_suspend, msm_pm_resume)
 	SET_RUNTIME_PM_OPS(msm_runtime_suspend, msm_runtime_resume, NULL)
 };

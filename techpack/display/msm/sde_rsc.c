@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt)	"[sde_rsc:%s:%d]: " fmt, __func__, __LINE__
@@ -310,7 +310,7 @@ static u32 sde_rsc_timer_calculate(struct sde_rsc_priv *rsc,
 
 	default_prefill_lines = (rsc->cmd_config.fps *
 		DEFAULT_PANEL_MIN_V_PREFILL) / DEFAULT_PANEL_FPS;
-	if ((state != SDE_RSC_VID_STATE) || !rsc->cmd_config.prefill_lines)
+	if ((state == SDE_RSC_CMD_STATE) || !rsc->cmd_config.prefill_lines)
 		rsc->cmd_config.prefill_lines = default_prefill_lines;
 
 	pr_debug("frame fps:%d jitter_numer:%d jitter_denom:%d vtotal:%d prefill lines:%d\n",
@@ -351,8 +351,6 @@ static u32 sde_rsc_timer_calculate(struct sde_rsc_priv *rsc,
 	pr_debug("line time:%llu prefill time ps:%llu\n",
 			line_time_ns, prefill_time_ns);
 	pr_debug("static wakeup time:%lld cxo:%u\n", total, cxo_period_ns);
-
-	SDE_EVT32(rsc->cmd_config.fps, rsc->cmd_config.vtotal, total);
 
 	pdc_backoff_time_ns = rsc_backoff_time_ns;
 	rsc_backoff_time_ns = div_u64(rsc_backoff_time_ns, cxo_period_ns);
@@ -745,7 +743,8 @@ static int sde_rsc_switch_to_idle(struct sde_rsc_priv *rsc,
 		if (!rc)
 			rc = CMD_MODE_SWITCH_SUCCESS;
 	} else if (clk_client_active) {
-		rc = sde_rsc_switch_to_clk(rsc, wait_vblank_crtc_id);
+		if (rsc->current_state != SDE_RSC_CLK_STATE)
+			rc = sde_rsc_switch_to_clk(rsc, wait_vblank_crtc_id);
 		if (!rc)
 			rc = CLK_MODE_SWITCH_SUCCESS;
 	} else if (rsc->hw_ops.state_update) {
@@ -927,8 +926,13 @@ int sde_rsc_client_state_update(struct sde_rsc_client *caller_client,
 		goto end;
 	}
 
-	if (rsc->current_state == SDE_RSC_IDLE_STATE)
-		sde_rsc_resource_enable(rsc);
+	if (rsc->current_state == SDE_RSC_IDLE_STATE) {
+		rc = sde_rsc_resource_enable(rsc);
+		if (rc) {
+			pr_err("failed to enable sde rsc power resources rc:%d\n", rc);
+			goto end;
+		}
+	}
 
 	switch (state) {
 	case SDE_RSC_IDLE_STATE:
