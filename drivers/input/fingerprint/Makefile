@@ -6,5 +6,5 @@
 
 #obj-$(CONFIG_FINGERPRINT_GOODIX_FOD)	+= goodix_fod/
 obj-y	+= goodix_fod/
-obj-y	+= goodix_ta/
+obj-$(CONFIG_FINGERPRINT_GOODIX_TA)	+= goodix_ta/
 obj-$(CONFIG_FINGERPRINT_FPC_TEE)	+= fpc_tee/
