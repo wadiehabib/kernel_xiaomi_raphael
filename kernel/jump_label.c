@@ -38,10 +38,24 @@ static int jump_label_cmp(const void *a, const void *b)
 	const struct jump_entry *jea = a;
 	const struct jump_entry *jeb = b;
 
+	/*
+	 * Entrires are sorted by key.
+	 */
 	if (jump_entry_key(jea) < jump_entry_key(jeb))
 		return -1;
 
 	if (jump_entry_key(jea) > jump_entry_key(jeb))
+		return 1;
+
+	/*
+	 * In the batching mode, entries should also be sorted by the code
+	 * inside the already sorted list of entries, enabling a bsearch in
+	 * the vector.
+	 */
+	if (jump_entry_code(jea) < jump_entry_code(jeb))
+		return -1;
+
+	if (jump_entry_code(jea) > jump_entry_code(jeb))
 		return 1;
 
 	return 0;
@@ -303,14 +317,16 @@ static int addr_conflict(struct jump_entry *entry, void *start, void *end)
 }
 
 static int __jump_label_text_reserved(struct jump_entry *iter_start,
-		struct jump_entry *iter_stop, void *start, void *end)
+		struct jump_entry *iter_stop, void *start, void *end, bool init)
 {
 	struct jump_entry *iter;
 
 	iter = iter_start;
 	while (iter < iter_stop) {
-		if (addr_conflict(iter, start, end))
-			return 1;
+		if (init || !jump_entry_is_init(iter)) {
+			if (addr_conflict(iter, start, end))
+				return 1;
+		}
 		iter++;
 	}
 
@@ -385,25 +401,57 @@ static enum jump_label_type jump_label_type(struct jump_entry *entry)
 	return enabled ^ branch;
 }
 
+static bool jump_label_can_update(struct jump_entry *entry, bool init)
+{
+	/*
+	 * Cannot update code that was in an init text area.
+	 */
+	if (!init && jump_entry_is_init(entry))
+		return false;
+
+	if (!kernel_text_address(jump_entry_code(entry))) {
+		WARN_ONCE(!jump_entry_is_init(entry),
+			  "can't patch jump_label at %pS",
+			  (void *)jump_entry_code(entry));
+		return false;
+	}
+
+	return true;
+}
+
+#ifndef HAVE_JUMP_LABEL_BATCH
 static void __jump_label_update(struct static_key *key,
 				struct jump_entry *entry,
 				struct jump_entry *stop,
 				bool init)
 {
 	for (; (entry < stop) && (jump_entry_key(entry) == key); entry++) {
-		/*
-		 * An entry->code of 0 indicates an entry which has been
-		 * disabled because it was in an init text area.
-		 */
-		if (init || !jump_entry_is_init(entry)) {
-			if (kernel_text_address(jump_entry_code(entry)))
-				arch_jump_label_transform(entry, jump_label_type(entry));
-			else
-				WARN_ONCE(1, "can't patch jump_label at %pS",
-					  (void *)jump_entry_code(entry));
-		}
+		if (jump_label_can_update(entry, init))
+			arch_jump_label_transform(entry, jump_label_type(entry));
 	}
 }
+#else
+static void __jump_label_update(struct static_key *key,
+				struct jump_entry *entry,
+				struct jump_entry *stop,
+				bool init)
+{
+	for (; (entry < stop) && (jump_entry_key(entry) == key); entry++) {
+
+		if (!jump_label_can_update(entry, init))
+			continue;
+
+		if (!arch_jump_label_transform_queue(entry, jump_label_type(entry))) {
+			/*
+			 * Queue is full: Apply the current queue and try again.
+			 */
+			arch_jump_label_transform_apply();
+			BUG_ON(!arch_jump_label_transform_queue(entry, jump_label_type(entry)));
+		}
+	}
+	arch_jump_label_transform_apply();
+}
+#endif
 
 void __init jump_label_init(void)
 {
@@ -430,13 +478,14 @@ void __init jump_label_init(void)
 
 	for (iter = iter_start; iter < iter_stop; iter++) {
 		struct static_key *iterk;
+		bool in_init;
 
 		/* rewrite NOPs */
 		if (jump_label_type(iter) == JUMP_LABEL_NOP)
 			arch_jump_label_transform_static(iter, JUMP_LABEL_NOP);
 
-		if (init_section_contains((void *)jump_entry_code(iter), 1))
-			jump_entry_set_init(iter);
+		in_init = init_section_contains((void *)jump_entry_code(iter), 1);
+		jump_entry_set_init(iter, in_init);
 
 		iterk = jump_entry_key(iter);
 		if (iterk == key)
@@ -494,19 +543,25 @@ static void static_key_set_mod(struct static_key *key,
 static int __jump_label_mod_text_reserved(void *start, void *end)
 {
 	struct module *mod;
+	int ret;
 
 	preempt_disable();
 	mod = __module_text_address((unsigned long)start);
 	WARN_ON_ONCE(__module_text_address((unsigned long)end) != mod);
+	if (!try_module_get(mod))
+		mod = NULL;
 	preempt_enable();
 
 	if (!mod)
 		return 0;
 
-
-	return __jump_label_text_reserved(mod->jump_entries,
+	ret = __jump_label_text_reserved(mod->jump_entries,
 				mod->jump_entries + mod->num_jump_entries,
-				start, end);
+				start, end, mod->state == MODULE_STATE_COMING);
+
+	module_put(mod);
+
+	return ret;
 }
 
 static void __jump_label_mod_update(struct static_key *key)
@@ -575,9 +630,10 @@ static int jump_label_add_module(struct module *mod)
 
 	for (iter = iter_start; iter < iter_stop; iter++) {
 		struct static_key *iterk;
+		bool in_init;
 
-		if (within_module_init(jump_entry_code(iter), mod))
-			jump_entry_set_init(iter);
+		in_init = within_module_init(jump_entry_code(iter), mod);
+		jump_entry_set_init(iter, in_init);
 
 		iterk = jump_entry_key(iter);
 		if (iterk == key)
@@ -727,8 +783,9 @@ early_initcall(jump_label_init_module);
  */
 int jump_label_text_reserved(void *start, void *end)
 {
+	bool init = system_state < SYSTEM_RUNNING;
 	int ret = __jump_label_text_reserved(__start___jump_table,
-			__stop___jump_table, start, end);
+			__stop___jump_table, start, end, init);
 
 	if (ret)
 		return ret;
@@ -742,6 +799,7 @@ int jump_label_text_reserved(void *start, void *end)
 static void jump_label_update(struct static_key *key)
 {
 	struct jump_entry *stop = __stop___jump_table;
+	bool init = system_state < SYSTEM_RUNNING;
 	struct jump_entry *entry;
 #ifdef CONFIG_MODULES
 	struct module *mod;
@@ -753,15 +811,16 @@ static void jump_label_update(struct static_key *key)
 
 	preempt_disable();
 	mod = __module_address((unsigned long)key);
-	if (mod)
+	if (mod) {
 		stop = mod->jump_entries + mod->num_jump_entries;
+		init = mod->state == MODULE_STATE_COMING;
+	}
 	preempt_enable();
 #endif
 	entry = static_key_entries(key);
 	/* if there are no users, entry can be NULL */
 	if (entry)
-		__jump_label_update(key, entry, stop,
-				    system_state < SYSTEM_RUNNING);
+		__jump_label_update(key, entry, stop, init);
 }
 
 #ifdef CONFIG_STATIC_KEYS_SELFTEST

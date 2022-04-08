@@ -45,6 +45,7 @@ config ARM64
 	select ARCH_SUPPORTS_LTO_CLANG
 	select ARCH_SUPPORTS_THINLTO
 	select ARCH_SUPPORTS_SHADOW_CALL_STACK
+	select ARCH_USE_QUEUED_SPINLOCKS
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_USE_QUEUED_SPINLOCKS
@@ -100,6 +101,7 @@ config ARM64
 	select HAVE_ARCH_MMAP_RND_BITS
 	select HAVE_ARCH_MMAP_RND_COMPAT_BITS if COMPAT
 	select HAVE_ARCH_SECCOMP_FILTER
+	select HAVE_ARCH_THREAD_STRUCT_WHITELIST
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
 	select HAVE_ARCH_VMAP_STACK
@@ -244,9 +246,6 @@ config LOCKDEP_SUPPORT
 	def_bool y
 
 config TRACE_IRQFLAGS_SUPPORT
-	def_bool y
-
-config RWSEM_XCHGADD_ALGORITHM
 	def_bool y
 
 config GENERIC_BUG
@@ -564,6 +563,8 @@ config ARM64_ERRATUM_1286807
 config ARM64_ERRATUM_1188873
 	bool "Cortex-A76: MRC read following MRRC read of specific Generic Timer in AArch32 might give incorrect result"
 	default y
+        depends on COMPAT
+        select ARM_ARCH_TIMER_OOL_WORKAROUND
 	help
 	  This option adds work arounds for ARM Cortex-A76 erratum 1188873
 
@@ -1078,6 +1079,16 @@ config ARM64_TAGGED_ADDR_ABI
 	  relaxed ABI via prctl() allowing tagged addresses to be passed
 	  to system calls as pointer arguments. For details, see
 	  Documentation/arm64/tagged-address-abi.rst.
+
+config MITIGATE_SPECTRE_BRANCH_HISTORY
+	bool "Mitigate Spectre style attacks against branch history" if EXPERT
+	default y
+	depends on HARDEN_BRANCH_PREDICTOR || !KVM
+	help
+	  Speculation attacks against some high-performance processors can
+	  make use of branch history to influence future speculation.
+	  When taking an exception from user-space, a sequence of branches
+	  or a firmware call overwrites the branch history
 
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"

@@ -239,18 +239,30 @@ core_initcall(rcu_set_runtime_mode);
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 static struct lock_class_key rcu_lock_key;
-struct lockdep_map rcu_lock_map =
-	STATIC_LOCKDEP_MAP_INIT("rcu_read_lock", &rcu_lock_key);
+struct lockdep_map rcu_lock_map = {
+	.name = "rcu_read_lock",
+	.key = &rcu_lock_key,
+	.wait_type_outer = LD_WAIT_FREE,
+	.wait_type_inner = LD_WAIT_CONFIG, /* XXX PREEMPT_RCU ? */
+};
 EXPORT_SYMBOL_GPL(rcu_lock_map);
 
 static struct lock_class_key rcu_bh_lock_key;
-struct lockdep_map rcu_bh_lock_map =
-	STATIC_LOCKDEP_MAP_INIT("rcu_read_lock_bh", &rcu_bh_lock_key);
+struct lockdep_map rcu_bh_lock_map = {
+	.name = "rcu_read_lock_bh",
+	.key = &rcu_bh_lock_key,
+	.wait_type_outer = LD_WAIT_FREE,
+	.wait_type_inner = LD_WAIT_CONFIG, /* PREEMPT_LOCK also makes BH preemptible */
+};
 EXPORT_SYMBOL_GPL(rcu_bh_lock_map);
 
 static struct lock_class_key rcu_sched_lock_key;
-struct lockdep_map rcu_sched_lock_map =
-	STATIC_LOCKDEP_MAP_INIT("rcu_read_lock_sched", &rcu_sched_lock_key);
+struct lockdep_map rcu_sched_lock_map = {
+	.name = "rcu_read_lock_sched",
+	.key = &rcu_sched_lock_key,
+	.wait_type_outer = LD_WAIT_FREE,
+	.wait_type_inner = LD_WAIT_SPIN,
+};
 EXPORT_SYMBOL_GPL(rcu_sched_lock_map);
 
 static struct lock_class_key rcu_callback_key;
@@ -647,6 +659,7 @@ static int __noreturn rcu_tasks_kthread(void *arg)
 	struct rcu_head *list;
 	struct rcu_head *next;
 	LIST_HEAD(rcu_tasks_holdouts);
+	int fract;
 
 	/* Run on housekeeping CPUs by default.  Sysadm can move if desired. */
 	housekeeping_affine(current);
@@ -728,13 +741,25 @@ static int __noreturn rcu_tasks_kthread(void *arg)
 		 * holdouts.  When the list is empty, we are done.
 		 */
 		lastreport = jiffies;
-		while (!list_empty(&rcu_tasks_holdouts)) {
+
+		/* Start off with HZ/10 wait and slowly back off to 1 HZ wait*/
+		fract = 10;
+
+		for (;;) {
 			bool firstreport;
 			bool needreport;
 			int rtst;
 			struct task_struct *t1;
 
-			schedule_timeout_interruptible(HZ);
+			if (list_empty(&rcu_tasks_holdouts))
+				break;
+
+			/* Slowly back off waiting for holdouts */
+			schedule_timeout_interruptible(HZ/fract);
+
+			if (fract > 1)
+				fract--;
+
 			rtst = READ_ONCE(rcu_task_stall_timeout);
 			needreport = rtst > 0 &&
 				     time_after(jiffies, lastreport + rtst);

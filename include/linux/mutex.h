@@ -14,7 +14,6 @@
 #include <asm/current.h>
 #include <linux/list.h>
 #include <linux/spinlock_types.h>
-#include <linux/linkage.h>
 #include <linux/lockdep.h>
 #include <linux/atomic.h>
 #include <asm/processor.h>
@@ -53,7 +52,7 @@ struct ww_acquire_ctx;
  */
 struct mutex {
 	atomic_long_t		owner;
-	spinlock_t		wait_lock;
+	raw_spinlock_t		wait_lock;
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
 	struct optimistic_spin_queue osq; /* Spinner MCS lock */
 #endif
@@ -115,15 +114,18 @@ do {									\
 } while (0)
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-# define __DEP_MAP_MUTEX_INITIALIZER(lockname) \
-		, .dep_map = { .name = #lockname }
+# define __DEP_MAP_MUTEX_INITIALIZER(lockname)			\
+		, .dep_map = {					\
+			.name = #lockname,			\
+			.wait_type_inner = LD_WAIT_SLEEP,	\
+		}
 #else
 # define __DEP_MAP_MUTEX_INITIALIZER(lockname)
 #endif
 
 #define __MUTEX_INITIALIZER(lockname) \
 		{ .owner = ATOMIC_LONG_INIT(0) \
-		, .wait_lock = __SPIN_LOCK_UNLOCKED(lockname.wait_lock) \
+		, .wait_lock = __RAW_SPIN_LOCK_UNLOCKED(lockname.wait_lock) \
 		, .wait_list = LIST_HEAD_INIT(lockname.wait_list) \
 		__DEBUG_MUTEX_INITIALIZER(lockname) \
 		__DEP_MAP_MUTEX_INITIALIZER(lockname) }
@@ -138,9 +140,9 @@ extern void __mutex_init(struct mutex *lock, const char *name,
  * mutex_is_locked - is the mutex locked
  * @lock: the mutex to be queried
  *
- * Returns 1 if the mutex is locked, 0 if unlocked.
+ * Returns true if the mutex is locked, false if unlocked.
  */
-static inline int mutex_is_locked(struct mutex *lock)
+static inline bool mutex_is_locked(struct mutex *lock)
 {
 	return __mutex_owner(lock) != NULL;
 }
