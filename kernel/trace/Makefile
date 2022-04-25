@@ -2,6 +2,8 @@
 
 # Do not instrument the tracer itself:
 
+ccflags-y := -UNOTRACE
+
 ifdef CONFIG_FUNCTION_TRACER
 ORIG_CFLAGS := $(KBUILD_CFLAGS)
 KBUILD_CFLAGS = $(subst $(CC_FLAGS_FTRACE),,$(ORIG_CFLAGS))
@@ -75,7 +77,6 @@ obj-$(CONFIG_GPU_TRACEPOINTS) += gpu-traces.o
 
 obj-$(CONFIG_TRACEPOINT_BENCHMARK) += trace_benchmark.o
 
-obj-$(CONFIG_QCOM_RTB) += msm_rtb.o
 obj-$(CONFIG_IPC_LOGGING) += ipc_logging.o
 ifdef CONFIG_DEBUG_FS
 obj-$(CONFIG_IPC_LOGGING) += ipc_logging_debug.o

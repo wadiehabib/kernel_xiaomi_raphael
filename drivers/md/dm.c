@@ -117,7 +117,7 @@ static unsigned reserved_bio_based_ios = RESERVED_BIO_BASED_IOS;
 
 static int __dm_get_module_param_int(int *module_param, int min, int max)
 {
-	int param = ACCESS_ONCE(*module_param);
+	int param = READ_ONCE(*module_param);
 	int modified_param = 0;
 	bool modified = true;
 
@@ -139,7 +139,7 @@ static int __dm_get_module_param_int(int *module_param, int min, int max)
 unsigned __dm_get_module_param(unsigned *module_param,
 			       unsigned def, unsigned max)
 {
-	unsigned param = ACCESS_ONCE(*module_param);
+	unsigned param = READ_ONCE(*module_param);
 	unsigned modified_param = 0;
 
 	if (!param)
@@ -1531,7 +1531,7 @@ static void __split_and_process_bio(struct mapped_device *md,
  */
 static blk_qc_t dm_make_request(struct request_queue *q, struct bio *bio)
 {
-	int rw = bio_data_dir(bio);
+	int rw __maybe_unused = bio_data_dir(bio);
 	struct mapped_device *md = q->queuedata;
 	int srcu_idx;
 	struct dm_table *map;
