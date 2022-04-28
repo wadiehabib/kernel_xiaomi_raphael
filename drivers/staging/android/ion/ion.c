@@ -181,12 +181,21 @@ static void *ion_dma_buf_vmap(struct dma_buf *dmabuf)
 	struct ion_heap *heap = buffer->heap;
 	void *vaddr;
 
-	if (buffer->kmap_cnt) {
-		if (buffer->kmap_cnt == INT_MAX)
-			return ERR_PTR(-EOVERFLOW);
+	if (!heap->ops->map_kernel)
+		return ERR_PTR(-ENODEV);
 
-		buffer->kmap_cnt++;
-		return buffer->vaddr;
+	mutex_lock(&buffer->kmap_lock);
+	if (buffer->kmap_refcount) {
+		vaddr = buffer->vaddr;
+		buffer->kmap_refcount++;
+	} else {
+		vaddr = heap->ops->map_kernel(heap, buffer);
+		if (IS_ERR_OR_NULL(vaddr)) {
+			vaddr = ERR_PTR(-EINVAL);
+		} else {
+			buffer->vaddr = vaddr;
+			buffer->kmap_refcount++;
+		}
 	}
 	mutex_unlock(&buffer->kmap_lock);
 
