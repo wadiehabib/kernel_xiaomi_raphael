@@ -29,7 +29,7 @@ DTB_OBJS += rtic_mp.dtb
 endif
 
 rtic_mp.dtb: vmlinux FORCE
-	$(DTC) -O dtb -o rtic_mp.dtb -b 0 $(DTC_FLAGS) rtic_mp.dts
+	$(DTC) -@ -O dtb -o rtic_mp.dtb -b 0 $(DTC_FLAGS) rtic_mp.dts
 
 endif
 
